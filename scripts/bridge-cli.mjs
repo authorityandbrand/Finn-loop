@@ -18,17 +18,21 @@ const headers = {
 
 const BASE = `https://claude.ai/api/organizations/${ORG_ID}`;
 
-async function api(path) {
+async function api(path, opts = {}) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000);
+  const timeout = setTimeout(() => controller.abort(), 30000);
   try {
-    const res = await fetch(`${BASE}${path}`, { headers, signal: controller.signal });
+    const res = await fetch(`${BASE}${path}`, { headers, ...opts, signal: controller.signal });
+    if (opts.method === "DELETE" && (res.status === 204 || res.status === 200)) {
+      return { ok: true };
+    }
     if (!res.ok) {
       const text = await res.text();
       console.error(`API ${res.status}: ${text.slice(0, 300)}`);
       process.exit(1);
     }
-    return res.json();
+    const text = await res.text();
+    return text ? JSON.parse(text) : { ok: true };
   } finally {
     clearTimeout(timeout);
   }
@@ -74,6 +78,70 @@ switch (cmd) {
     break;
   }
 
+  case "create-file": {
+    if (!args[0] || !args[1]) { console.error("Usage: bridge-cli.mjs create-file <project-id> <filename> [content from stdin]"); process.exit(1); }
+    let content = args.slice(2).join(" ");
+    if (!content) {
+      const chunks = [];
+      for await (const chunk of process.stdin) chunks.push(chunk);
+      content = Buffer.concat(chunks).toString();
+    }
+    const result = await api(`/projects/${args[0]}/docs`, {
+      method: "POST",
+      body: JSON.stringify({ file_name: args[1], content }),
+    });
+    console.log(JSON.stringify({ id: result.uuid, name: result.file_name }, null, 2));
+    break;
+  }
+
+  case "update-file": {
+    if (!args[0] || !args[1]) { console.error("Usage: bridge-cli.mjs update-file <project-id> <file-id> [content from stdin]"); process.exit(1); }
+    let content = args.slice(2).join(" ");
+    if (!content) {
+      const chunks = [];
+      for await (const chunk of process.stdin) chunks.push(chunk);
+      content = Buffer.concat(chunks).toString();
+    }
+    await api(`/projects/${args[0]}/docs/${args[1]}`, { method: "DELETE" });
+    const doc = await api(`/projects/${args[0]}/docs/${args[1]}`).catch(() => null);
+    const result = await api(`/projects/${args[0]}/docs`, {
+      method: "POST",
+      body: JSON.stringify({ file_name: args[1], content }),
+    });
+    console.log(JSON.stringify({ id: result.uuid, name: result.file_name, updated: true }, null, 2));
+    break;
+  }
+
+  case "delete-file": {
+    if (!args[0] || !args[1]) { console.error("Usage: bridge-cli.mjs delete-file <project-id> <file-id>"); process.exit(1); }
+    await api(`/projects/${args[0]}/docs/${args[1]}`, { method: "DELETE" });
+    console.log("Deleted");
+    break;
+  }
+
+  case "delete-project": {
+    if (!args[0]) { console.error("Usage: bridge-cli.mjs delete-project <project-id>"); process.exit(1); }
+    await api(`/projects/${args[0]}`, { method: "DELETE" });
+    console.log("Deleted");
+    break;
+  }
+
+  case "set-instructions": {
+    if (!args[0]) { console.error("Usage: bridge-cli.mjs set-instructions <project-id> [instructions from stdin]"); process.exit(1); }
+    let content = args.slice(1).join(" ");
+    if (!content) {
+      const chunks = [];
+      for await (const chunk of process.stdin) chunks.push(chunk);
+      content = Buffer.concat(chunks).toString();
+    }
+    await api(`/projects/${args[0]}`, {
+      method: "PUT",
+      body: JSON.stringify({ prompt_template: content }),
+    });
+    console.log("Instructions updated");
+    break;
+  }
+
   case "search": {
     if (!args[0]) { console.error("Usage: bridge-cli.mjs search <query>"); process.exit(1); }
     const projects = await api("/projects");
@@ -99,7 +167,18 @@ switch (cmd) {
     break;
   }
 
+  case "list-conversations": {
+    if (!args[0]) { console.error("Usage: bridge-cli.mjs list-conversations <project-id>"); process.exit(1); }
+    const convos = await api(`/projects/${args[0]}/conversations`);
+    console.log(JSON.stringify((convos || []).map(c => ({
+      id: c.uuid, name: c.name || "(untitled)", updated: c.updated_at,
+    })), null, 2));
+    break;
+  }
+
   default:
-    console.log("Commands: list-projects, get-project, list-files, get-file, get-instructions, search, agent-context");
+    console.log("Read:  list-projects, get-project, list-files, get-file, get-instructions, search, agent-context");
+    console.log("Write: create-file, update-file, delete-file, set-instructions, delete-project");
+    console.log("Context: list-conversations");
     console.log("Env: CLAUDE_SESSION_KEY (required), CLAUDE_ORG_ID (optional)");
 }
