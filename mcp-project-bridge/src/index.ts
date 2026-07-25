@@ -4,13 +4,30 @@ import { z } from "zod";
 
 // claude.ai Projects store knowledge in GCS at gs://claude-kb-projects/{project_id}/
 // Access is authenticated via the claude.ai session key (sk-ant-sid01-...)
-// No platform API key needed — the session key from a logged-in user is sufficient.
 
 const CLAUDE_API = "https://claude.ai/api";
+const FETCH_TIMEOUT_MS = 15_000;
+const MAX_CONCURRENT_FETCHES = 6;
+
+const uuidSchema = z.string().uuid();
 
 interface Env {
   CLAUDE_SESSION_KEY?: string;
   ORG_ID?: string;
+  BRIDGE_TOKEN?: string;
+}
+
+class AuthError extends Error { name = "AuthError" as const; }
+class UpstreamError extends Error { name = "UpstreamError" as const; }
+class InputError extends Error { name = "InputError" as const; }
+
+function verifyBridgeToken(request: Request, env: Env): void {
+  if (!env.BRIDGE_TOKEN) return;
+  const auth = request.headers.get("authorization");
+  const token = auth?.startsWith("Bearer ") ? auth.slice(7) : null;
+  if (token !== env.BRIDGE_TOKEN) {
+    throw new AuthError("Invalid or missing bridge token.");
+  }
 }
 
 function resolveSessionKey(request: Request, env: Env): string {
@@ -19,9 +36,8 @@ function resolveSessionKey(request: Request, env: Env): string {
 
   const key = fromHeader || env.CLAUDE_SESSION_KEY;
   if (!key) {
-    throw new Error(
-      "No session key available. Provide x-session-key header or set CLAUDE_SESSION_KEY secret. "
-      + "In a logged-in claude.ai connector, the session flows automatically."
+    throw new AuthError(
+      "No session key available. Provide x-session-key header or set CLAUDE_SESSION_KEY secret."
     );
   }
   return key;
@@ -31,9 +47,17 @@ function resolveOrgId(request: Request, env: Env): string {
   const fromHeader = request.headers.get("x-org-id");
   const id = fromHeader || env.ORG_ID;
   if (!id) {
-    throw new Error("No org ID available. Provide x-org-id header or set ORG_ID env var.");
+    throw new AuthError("No org ID available. Provide x-org-id header or set ORG_ID env var.");
   }
   return id;
+}
+
+function validateUuid(value: string, label: string): string {
+  const result = uuidSchema.safeParse(value);
+  if (!result.success) {
+    throw new InputError(`Invalid ${label}: must be a valid UUID.`);
+  }
+  return result.data;
 }
 
 async function claudeApiFetch(
@@ -42,29 +66,51 @@ async function claudeApiFetch(
   method = "GET",
   body?: unknown
 ): Promise<unknown> {
-  const headers: Record<string, string> = {
-    "content-type": "application/json",
-    "cookie": `sessionKey=${sessionKey}`,
-    "anthropic-client-sha": "unknown",
-    "anthropic-client-version": "unknown",
-  };
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
-  const res = await fetch(`${CLAUDE_API}${path}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  try {
+    const res = await fetch(`${CLAUDE_API}${path}`, {
+      method,
+      headers: {
+        "content-type": "application/json",
+        "cookie": `sessionKey=${sessionKey}`,
+        "anthropic-client-sha": "unknown",
+        "anthropic-client-version": "unknown",
+      },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    });
 
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`claude.ai API ${res.status}: ${text}`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new UpstreamError(`claude.ai API returned ${res.status}`);
+    }
+
+    const contentType = res.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      return res.json();
+    }
+    return res.text();
+  } finally {
+    clearTimeout(timeout);
   }
+}
 
-  const contentType = res.headers.get("content-type") || "";
-  if (contentType.includes("application/json")) {
-    return res.json();
+async function fetchInChunks<T>(
+  items: T[],
+  fn: (item: T) => Promise<unknown>,
+  chunkSize = MAX_CONCURRENT_FETCHES
+): Promise<unknown[]> {
+  const results: unknown[] = [];
+  for (let i = 0; i < items.length; i += chunkSize) {
+    const chunk = items.slice(i, i + chunkSize);
+    const chunkResults = await Promise.allSettled(chunk.map(fn));
+    results.push(...chunkResults.map(r =>
+      r.status === "fulfilled" ? r.value : null
+    ));
   }
-  return res.text();
+  return results;
 }
 
 function extractInstructions(data: Record<string, unknown>): string | null {
@@ -79,7 +125,7 @@ function extractInstructions(data: Record<string, unknown>): string | null {
 function createServer(sessionKey: string, orgId: string) {
   const server = new McpServer({
     name: "project-bridge",
-    version: "3.0.0",
+    version: "4.0.0",
   });
 
   // ── Projects ──
@@ -106,8 +152,9 @@ function createServer(sessionKey: string, orgId: string) {
       project_id: z.string().describe("The project UUID"),
     },
     async ({ project_id }) => {
+      const pid = validateUuid(project_id, "project_id");
       const data = await claudeApiFetch(
-        `/organizations/${orgId}/projects/${project_id}`,
+        `/organizations/${orgId}/projects/${pid}`,
         sessionKey
       );
       return {
@@ -120,13 +167,14 @@ function createServer(sessionKey: string, orgId: string) {
 
   server.tool(
     "list_project_files",
-    "List all knowledge files in a claude.ai Project. Files are stored in GCS at gs://claude-kb-projects/{project_id}/.",
+    "List all knowledge files in a claude.ai Project.",
     {
       project_id: z.string().describe("The project UUID"),
     },
     async ({ project_id }) => {
+      const pid = validateUuid(project_id, "project_id");
       const data = await claudeApiFetch(
-        `/organizations/${orgId}/projects/${project_id}/docs`,
+        `/organizations/${orgId}/projects/${pid}/docs`,
         sessionKey
       );
       return {
@@ -143,8 +191,10 @@ function createServer(sessionKey: string, orgId: string) {
       file_id: z.string().describe("The file/document UUID"),
     },
     async ({ project_id, file_id }) => {
+      const pid = validateUuid(project_id, "project_id");
+      const fid = validateUuid(file_id, "file_id");
       const data = await claudeApiFetch(
-        `/organizations/${orgId}/projects/${project_id}/docs/${file_id}`,
+        `/organizations/${orgId}/projects/${pid}/docs/${fid}`,
         sessionKey
       );
       return {
@@ -162,8 +212,9 @@ function createServer(sessionKey: string, orgId: string) {
       project_id: z.string().describe("The project UUID"),
     },
     async ({ project_id }) => {
+      const pid = validateUuid(project_id, "project_id");
       const data = await claudeApiFetch(
-        `/organizations/${orgId}/projects/${project_id}`,
+        `/organizations/${orgId}/projects/${pid}`,
         sessionKey
       ) as Record<string, unknown>;
 
@@ -184,8 +235,9 @@ function createServer(sessionKey: string, orgId: string) {
       instructions: z.string().describe("The new instructions text"),
     },
     async ({ project_id, instructions }) => {
+      const pid = validateUuid(project_id, "project_id");
       const data = await claudeApiFetch(
-        `/organizations/${orgId}/projects/${project_id}`,
+        `/organizations/${orgId}/projects/${pid}`,
         sessionKey,
         "PUT",
         { prompt_template: instructions }
@@ -206,8 +258,9 @@ function createServer(sessionKey: string, orgId: string) {
       query: z.string().describe("Search query"),
     },
     async ({ project_id, query }) => {
+      const pid = validateUuid(project_id, "project_id");
       const data = await claudeApiFetch(
-        `/organizations/${orgId}/projects/${project_id}/docs/search?q=${encodeURIComponent(query)}`,
+        `/organizations/${orgId}/projects/${pid}/docs/search?q=${encodeURIComponent(query)}`,
         sessionKey
       );
       return {
@@ -224,17 +277,19 @@ function createServer(sessionKey: string, orgId: string) {
     {
       project_id: z.string().describe("The project UUID"),
       include_file_contents: z.boolean().optional().describe(
-        "If true, also fetch the content of each file (capped at 50). Expensive — only use when the agent needs deep knowledge upfront. Default false."
+        "If true, also fetch the content of each file (capped at 50, batched in groups of 6). Default false."
       ),
     },
     async ({ project_id, include_file_contents }) => {
+      const pid = validateUuid(project_id, "project_id");
+
       const [project, files] = await Promise.all([
         claudeApiFetch(
-          `/organizations/${orgId}/projects/${project_id}`,
+          `/organizations/${orgId}/projects/${pid}`,
           sessionKey
         ) as Promise<Record<string, unknown>>,
         claudeApiFetch(
-          `/organizations/${orgId}/projects/${project_id}/docs`,
+          `/organizations/${orgId}/projects/${pid}/docs`,
           sessionKey
         ) as Promise<unknown>,
       ]);
@@ -242,7 +297,7 @@ function createServer(sessionKey: string, orgId: string) {
       const fileList = Array.isArray(files) ? files : [];
 
       const context: Record<string, unknown> = {
-        project_id,
+        project_id: pid,
         name: project?.name,
         instructions: extractInstructions(project),
         files: fileList.map((f: Record<string, unknown>) => ({
@@ -256,21 +311,25 @@ function createServer(sessionKey: string, orgId: string) {
 
       if (include_file_contents) {
         const batch = fileList.slice(0, 50);
-        const loaded = await Promise.all(
-          batch.map(async (f: Record<string, unknown>) => {
-            const fid = (f.uuid ?? f.id) as string;
+        const loaded = await fetchInChunks(
+          batch,
+          async (f: Record<string, unknown>) => {
+            const fid = f.uuid ?? f.id;
+            if (!fid || typeof fid !== "string") {
+              return { id: null, name: f.file_name ?? f.name, error: "missing file id" };
+            }
             try {
               const content = await claudeApiFetch(
-                `/organizations/${orgId}/projects/${project_id}/docs/${fid}`,
+                `/organizations/${orgId}/projects/${pid}/docs/${fid}`,
                 sessionKey
               );
               return { id: fid, name: f.file_name ?? f.name, content };
             } catch {
               return { id: fid, name: f.file_name ?? f.name, error: "failed to load" };
             }
-          })
+          }
         );
-        context.file_contents = loaded;
+        context.file_contents = loaded.filter(Boolean);
         if (fileList.length > 50) {
           context.truncated = true;
           context.total_files = fileList.length;
@@ -294,8 +353,9 @@ function createServer(sessionKey: string, orgId: string) {
       content: z.string().describe("File content (text)"),
     },
     async ({ project_id, file_name, content }) => {
+      const pid = validateUuid(project_id, "project_id");
       const data = await claudeApiFetch(
-        `/organizations/${orgId}/projects/${project_id}/docs`,
+        `/organizations/${orgId}/projects/${pid}/docs`,
         sessionKey,
         "POST",
         { file_name, content }
@@ -314,8 +374,10 @@ function createServer(sessionKey: string, orgId: string) {
       file_id: z.string().describe("The file/document UUID to delete"),
     },
     async ({ project_id, file_id }) => {
+      const pid = validateUuid(project_id, "project_id");
+      const fid = validateUuid(file_id, "file_id");
       const data = await claudeApiFetch(
-        `/organizations/${orgId}/projects/${project_id}/docs/${file_id}`,
+        `/organizations/${orgId}/projects/${pid}/docs/${fid}`,
         sessionKey,
         "DELETE"
       );
@@ -349,31 +411,32 @@ function createServer(sessionKey: string, orgId: string) {
   return server;
 }
 
+function errorResponse(err: unknown): Response {
+  const message = err instanceof Error ? err.message : "Unknown error";
+  let status = 500;
+  if (err instanceof AuthError) status = 401;
+  else if (err instanceof InputError) status = 400;
+  else if (err instanceof UpstreamError) status = 502;
+
+  return new Response(JSON.stringify({ error: message }), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
     if (url.pathname === "/health") {
-      return new Response(JSON.stringify({
-        status: "ok",
-        server: "project-bridge",
-        version: "3.0.0",
-        storage: "gs://claude-kb-projects/{project_id}/",
-        auth: "claude.ai session key",
-        tools: [
-          "list_projects", "get_project",
-          "list_project_files", "get_project_file",
-          "get_project_instructions", "update_project_instructions",
-          "search_project_knowledge", "get_agent_context",
-          "create_project_file", "delete_project_file",
-        ],
-      }), {
+      return new Response(JSON.stringify({ status: "ok", version: "4.0.0" }), {
         headers: { "content-type": "application/json" },
       });
     }
 
     if (url.pathname === "/mcp" || url.pathname === "/mcp/") {
       try {
+        verifyBridgeToken(request, env);
         const sessionKey = resolveSessionKey(request, env);
         const orgId = resolveOrgId(request, env);
         const server = createServer(sessionKey, orgId);
@@ -381,12 +444,7 @@ export default {
         await server.connect(transport);
         return transport.handleRequest(request);
       } catch (err) {
-        return new Response(JSON.stringify({
-          error: err instanceof Error ? err.message : "Unknown error",
-        }), {
-          status: 401,
-          headers: { "content-type": "application/json" },
-        });
+        return errorResponse(err);
       }
     }
 

@@ -41,13 +41,14 @@ The project bridge exposes these MCP tools when connected:
 - `search_project_knowledge` — Search across project files
 - `get_agent_context` — Batch load project context for agent bootstrapping
 - `create_project_file` — Upload new knowledge to a project
+- `delete_project_file` — Delete a knowledge file from a project
 - `update_project_instructions` — Update project instructions
 
 ## Factory Skills
 
 | Skill | What it does |
 |-------|--------------|
-| `/finn-spec` | Interview → Linear issue with AC/NG contract |
+| `/finn-spec` | Interview → GitHub issue with AC/NG contract |
 | `/finn-build` | Claim issue → implement → open PR |
 | `/finn-review` | Review PR against issue contract → verdict |
 | `/finn-agent` | Spawn agents wired to claude.ai Projects |
