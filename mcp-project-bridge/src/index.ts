@@ -1,5 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
 
 // claude.ai Projects store knowledge in GCS at gs://claude-kb-projects/{project_id}/
@@ -440,7 +440,7 @@ export default {
         const sessionKey = resolveSessionKey(request, env);
         const orgId = resolveOrgId(request, env);
         const server = createServer(sessionKey, orgId);
-        const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+        const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
         await server.connect(transport);
         return transport.handleRequest(request);
       } catch (err) {
