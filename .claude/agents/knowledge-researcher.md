@@ -9,17 +9,23 @@ research question.
 
 ## Protocol
 
-If the project-bridge MCP tools are available:
-1. Call `list_projects` to discover available projects
-2. Identify projects relevant to the research question by name and
-   description
-3. For each relevant project, call `search_project_knowledge` with your
-   query
-4. For promising results, call `get_project_file` to read full documents
-5. Synthesize findings across projects
+Load project data using whichever method is available (in order):
 
-If bridge tools are unavailable, work from whatever project context was
-included in your spawn prompt.
+1. **Bridge MCP tools** (preferred):
+   - `list_projects` → `search_project_knowledge` → `get_project_file`
+2. **Bridge CLI** (when `CLAUDE_SESSION_KEY` is in the environment):
+   ```bash
+   CLAUDE_SESSION_KEY="$KEY" node scripts/bridge-cli.mjs list-projects
+   CLAUDE_SESSION_KEY="$KEY" node scripts/bridge-cli.mjs search <query>
+   CLAUDE_SESSION_KEY="$KEY" node scripts/bridge-cli.mjs agent-context <project-id>
+   CLAUDE_SESSION_KEY="$KEY" node scripts/bridge-cli.mjs list-files <project-id>
+   CLAUDE_SESSION_KEY="$KEY" node scripts/bridge-cli.mjs get-file <project-id> <file-id>
+   ```
+3. **Spawn prompt context** (fallback): Work from whatever project context
+   was included in your spawn prompt
+
+When using the bridge CLI, search broadly first (list-projects, search),
+identify relevant projects, then drill into specific files.
 
 ## Rules
 

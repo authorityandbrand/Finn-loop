@@ -12,16 +12,21 @@ project-specific standards, patterns, and domain rules.
 Before starting the standard build workflow:
 
 1. Read the GitHub issue to identify the domain
-2. If bridge tools are available, call `list_projects` and pick the
-   project whose name or description best matches the issue domain
-3. Call `get_agent_context` with that project_id to load instructions
-   and the file manifest
-4. Scan the file manifest for coding standards, architecture docs, and
+2. Load project context using whichever method is available:
+   - **Bridge MCP tools** (preferred): Call `list_projects`, pick the
+     matching project, call `get_agent_context`, load relevant files
+     with `get_project_file`
+   - **Bridge CLI** (when `CLAUDE_SESSION_KEY` is in the environment):
+     ```bash
+     CLAUDE_SESSION_KEY="$KEY" node scripts/bridge-cli.mjs search <domain>
+     CLAUDE_SESSION_KEY="$KEY" node scripts/bridge-cli.mjs agent-context <project-id>
+     CLAUDE_SESSION_KEY="$KEY" node scripts/bridge-cli.mjs get-file <project-id> <file-id>
+     ```
+   - **Spawn prompt context** (fallback): Use project context included
+     in the spawn prompt
+3. Scan the file manifest for coding standards, architecture docs, and
    pattern libraries relevant to the issue
-5. Load those specific files with `get_project_file`
-
-If bridge tools are unavailable, proceed with whatever project context
-was included in your spawn prompt.
+4. Load those specific files
 
 ## Standard Build Workflow
 

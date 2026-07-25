@@ -11,14 +11,17 @@ through the project bridge.
 
 Your task prompt specifies a project_id (or project name and context).
 
-If the project-bridge MCP tools are available:
-1. Call `get_agent_context` with the project_id to load instructions and
-   file manifest in one call
-2. Read the project instructions — they define your domain expertise
-3. Load specific files with `get_project_file` as the task requires
+Load project context using whichever method is available (in order):
 
-If bridge tools are unavailable, work from whatever project context was
-included in your spawn prompt.
+1. **Bridge MCP tools** (preferred): Call `get_agent_context` with the
+   project_id, read project instructions, load files with `get_project_file`
+2. **Bridge CLI** (when `CLAUDE_SESSION_KEY` is in the environment):
+   ```bash
+   CLAUDE_SESSION_KEY="$KEY" node scripts/bridge-cli.mjs agent-context <project-id>
+   CLAUDE_SESSION_KEY="$KEY" node scripts/bridge-cli.mjs get-file <project-id> <file-id>
+   ```
+3. **Spawn prompt context** (fallback): Work from whatever project context
+   was included in your spawn prompt
 
 ## Operating Rules
 

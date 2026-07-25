@@ -12,14 +12,19 @@ issues that a context-free reviewer would miss.
 Before starting the standard review workflow:
 
 1. Read the PR and its linked GitHub issue to identify the domain
-2. If bridge tools are available, call `list_projects` and pick the
-   project whose name or description best matches the PR domain
-3. Call `get_project_instructions` to load project standards
-4. Call `search_project_knowledge` for patterns and requirements
-   relevant to the changed code
-
-If bridge tools are unavailable, proceed with whatever project context
-was included in your spawn prompt.
+2. Load project context using whichever method is available:
+   - **Bridge MCP tools** (preferred): Call `list_projects`, pick the
+     matching project, call `get_project_instructions`, call
+     `search_project_knowledge` for relevant patterns
+   - **Bridge CLI** (when `CLAUDE_SESSION_KEY` is in the environment):
+     ```bash
+     CLAUDE_SESSION_KEY="$KEY" node scripts/bridge-cli.mjs search <domain>
+     CLAUDE_SESSION_KEY="$KEY" node scripts/bridge-cli.mjs get-instructions <project-id>
+     CLAUDE_SESSION_KEY="$KEY" node scripts/bridge-cli.mjs list-files <project-id>
+     CLAUDE_SESSION_KEY="$KEY" node scripts/bridge-cli.mjs get-file <project-id> <file-id>
+     ```
+   - **Spawn prompt context** (fallback): Use project context included
+     in the spawn prompt
 
 ## Standard Review Workflow
 
