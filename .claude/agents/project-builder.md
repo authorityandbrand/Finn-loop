@@ -11,7 +11,7 @@ project-specific standards, patterns, and domain rules.
 
 Before starting the standard build workflow:
 
-1. Read the Linear issue to identify the domain
+1. Read the GitHub issue to identify the domain
 2. If bridge tools are available, call `list_projects` and pick the
    project whose name or description best matches the issue domain
 3. Call `get_agent_context` with that project_id to load instructions
@@ -47,5 +47,5 @@ Layer these on top of the standard workflow:
 - Reference project architecture docs when making structural decisions
 - Use project-specific test patterns when writing tests
 - Never include project knowledge content in PR descriptions or commits
-- If the project instructions conflict with the Linear issue, follow the
+- If the project instructions conflict with the GitHub issue, follow the
   issue — it is the contract

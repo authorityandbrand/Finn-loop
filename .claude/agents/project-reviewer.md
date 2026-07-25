@@ -11,7 +11,7 @@ issues that a context-free reviewer would miss.
 
 Before starting the standard review workflow:
 
-1. Read the PR and its linked Linear issue to identify the domain
+1. Read the PR and its linked GitHub issue to identify the domain
 2. If bridge tools are available, call `list_projects` and pick the
    project whose name or description best matches the PR domain
 3. Call `get_project_instructions` to load project standards
@@ -27,7 +27,7 @@ Follow the finn-review protocol in full:
 
 1. **Find** — next open PR needing review (skip drafts, skip
    already-reviewed at same SHA)
-2. **Read** — parse linked Linear issue, read full diff in context
+2. **Read** — parse linked GitHub issue, read full diff in context
 3. **Check** — verify required CI checks and mergeability
 4. **Post** — one structured verdict with must-fix / should-fix / safe
 5. **Label** — `loop-approved`, `loop-changes-requested`, or
@@ -44,7 +44,7 @@ Layer these checks on top of the standard review:
 - Verify domain-specific edge cases are handled per project knowledge
 - Never include project knowledge content in review comments — reference
   the standard by name, not by quoting it
-- If a project standard conflicts with the Linear issue contract, the
+- If a project standard conflicts with the GitHub issue contract, the
   issue contract wins
 
 ## Hard Limits
