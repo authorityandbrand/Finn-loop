@@ -28,9 +28,20 @@ If the user names a project, use it directly. Otherwise:
 2. Show the user a short list of relevant projects (name + description)
 3. Let the user choose
 
-If bridge tools are not connected, ask the user to provide the project
-instructions and key knowledge inline, or tell them how to connect the
-bridge:
+If bridge tools are not connected but `CLAUDE_SESSION_KEY` is set as an
+environment variable, use the bridge CLI to fetch project data directly:
+
+```bash
+node scripts/bridge-cli.mjs list-projects
+node scripts/bridge-cli.mjs agent-context <project-id>
+node scripts/bridge-cli.mjs get-file <project-id> <file-id>
+```
+
+Embed the fetched context into the agent's spawn prompt (step 4).
+
+If neither bridge tools nor `CLAUDE_SESSION_KEY` are available, ask the
+user to provide the project instructions and key knowledge inline, or
+tell them how to connect the bridge:
 
 ```
 claude mcp add --transport http project-bridge https://project-bridge-mcp.{account}.workers.dev/mcp

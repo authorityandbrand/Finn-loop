@@ -29,6 +29,22 @@ Spawn project-wired agents with `Agent(subagent_type: "...")`:
 | `project-builder` | Finn-loop builder with project knowledge |
 | `project-reviewer` | Finn-loop reviewer with project standards |
 
+### Bridge CLI (fallback)
+
+When the MCP bridge is not connected, use `scripts/bridge-cli.mjs` with
+`CLAUDE_SESSION_KEY` set as an environment variable:
+
+```bash
+export CLAUDE_SESSION_KEY="sk-ant-sid02-..."
+node scripts/bridge-cli.mjs list-projects
+node scripts/bridge-cli.mjs agent-context <project-id>
+node scripts/bridge-cli.mjs get-file <project-id> <file-id>
+node scripts/bridge-cli.mjs search <query>
+```
+
+Pre-fetch context, then embed it in agent spawn prompts. The session key
+comes from the browser (DevTools → Application → Cookies → `sessionKey`).
+
 ### Bridge Tools
 
 The project bridge exposes these MCP tools when connected:
