@@ -13,7 +13,6 @@ interface Env {
   ORG_ID?: string;
 }
 
-// Resolve auth: session key from request header, env, or claude.ai connector flow
 function resolveSessionKey(request: Request, env: Env): string {
   const fromHeader = request.headers.get("x-session-key")
     || request.headers.get("cookie")?.match(/sessionKey=([^;]+)/)?.[1];
@@ -68,10 +67,19 @@ async function claudeApiFetch(
   return res.text();
 }
 
+function extractInstructions(data: Record<string, unknown>): string | null {
+  const raw = data?.prompt_template
+    ?? data?.custom_instructions
+    ?? data?.description
+    ?? null;
+  if (raw === null) return null;
+  return typeof raw === "string" ? raw : JSON.stringify(raw, null, 2);
+}
+
 function createServer(sessionKey: string, orgId: string) {
   const server = new McpServer({
     name: "project-bridge",
-    version: "2.0.0",
+    version: "3.0.0",
   });
 
   // ── Projects ──
@@ -154,19 +162,36 @@ function createServer(sessionKey: string, orgId: string) {
       project_id: z.string().describe("The project UUID"),
     },
     async ({ project_id }) => {
-      // Project details include the instructions/prompt field
       const data = await claudeApiFetch(
         `/organizations/${orgId}/projects/${project_id}`,
         sessionKey
       ) as Record<string, unknown>;
 
-      const instructions = data?.prompt_template
-        || data?.custom_instructions
-        || data?.description
+      const instructions = extractInstructions(data)
         || "No instructions found in project response";
 
       return {
-        content: [{ type: "text", text: typeof instructions === "string" ? instructions : JSON.stringify(instructions, null, 2) }],
+        content: [{ type: "text", text: instructions }],
+      };
+    }
+  );
+
+  server.tool(
+    "update_project_instructions",
+    "Update the custom instructions for a claude.ai Project.",
+    {
+      project_id: z.string().describe("The project UUID"),
+      instructions: z.string().describe("The new instructions text"),
+    },
+    async ({ project_id, instructions }) => {
+      const data = await claudeApiFetch(
+        `/organizations/${orgId}/projects/${project_id}`,
+        sessionKey,
+        "PUT",
+        { prompt_template: instructions }
+      );
+      return {
+        content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
       };
     }
   );
@@ -181,13 +206,121 @@ function createServer(sessionKey: string, orgId: string) {
       query: z.string().describe("Search query"),
     },
     async ({ project_id, query }) => {
-      // Use the project knowledge search endpoint
       const data = await claudeApiFetch(
         `/organizations/${orgId}/projects/${project_id}/docs/search?q=${encodeURIComponent(query)}`,
         sessionKey
       );
       return {
         content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
+      };
+    }
+  );
+
+  // ── Agent Context ──
+
+  server.tool(
+    "get_agent_context",
+    "Batch-load a project's instructions and file manifest for agent bootstrapping. Returns everything an agent needs to specialize on a project domain in one call.",
+    {
+      project_id: z.string().describe("The project UUID"),
+      include_file_contents: z.boolean().optional().describe(
+        "If true, also fetch the content of each file (capped at 50). Expensive — only use when the agent needs deep knowledge upfront. Default false."
+      ),
+    },
+    async ({ project_id, include_file_contents }) => {
+      const [project, files] = await Promise.all([
+        claudeApiFetch(
+          `/organizations/${orgId}/projects/${project_id}`,
+          sessionKey
+        ) as Promise<Record<string, unknown>>,
+        claudeApiFetch(
+          `/organizations/${orgId}/projects/${project_id}/docs`,
+          sessionKey
+        ) as Promise<unknown>,
+      ]);
+
+      const fileList = Array.isArray(files) ? files : [];
+
+      const context: Record<string, unknown> = {
+        project_id,
+        name: project?.name,
+        instructions: extractInstructions(project),
+        files: fileList.map((f: Record<string, unknown>) => ({
+          id: f.uuid ?? f.id,
+          name: f.file_name ?? f.name ?? f.title,
+          type: f.content_type ?? f.type,
+          created: f.created_at,
+        })),
+        file_count: fileList.length,
+      };
+
+      if (include_file_contents) {
+        const batch = fileList.slice(0, 50);
+        const loaded = await Promise.all(
+          batch.map(async (f: Record<string, unknown>) => {
+            const fid = (f.uuid ?? f.id) as string;
+            try {
+              const content = await claudeApiFetch(
+                `/organizations/${orgId}/projects/${project_id}/docs/${fid}`,
+                sessionKey
+              );
+              return { id: fid, name: f.file_name ?? f.name, content };
+            } catch {
+              return { id: fid, name: f.file_name ?? f.name, error: "failed to load" };
+            }
+          })
+        );
+        context.file_contents = loaded;
+        if (fileList.length > 50) {
+          context.truncated = true;
+          context.total_files = fileList.length;
+        }
+      }
+
+      return {
+        content: [{ type: "text", text: JSON.stringify(context, null, 2) }],
+      };
+    }
+  );
+
+  // ── Project Mutations ──
+
+  server.tool(
+    "create_project_file",
+    "Upload a new knowledge file to a claude.ai Project.",
+    {
+      project_id: z.string().describe("The project UUID"),
+      file_name: z.string().describe("Name for the file"),
+      content: z.string().describe("File content (text)"),
+    },
+    async ({ project_id, file_name, content }) => {
+      const data = await claudeApiFetch(
+        `/organizations/${orgId}/projects/${project_id}/docs`,
+        sessionKey,
+        "POST",
+        { file_name, content }
+      );
+      return {
+        content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
+      };
+    }
+  );
+
+  server.tool(
+    "delete_project_file",
+    "Delete a knowledge file from a claude.ai Project.",
+    {
+      project_id: z.string().describe("The project UUID"),
+      file_id: z.string().describe("The file/document UUID to delete"),
+    },
+    async ({ project_id, file_id }) => {
+      const data = await claudeApiFetch(
+        `/organizations/${orgId}/projects/${project_id}/docs/${file_id}`,
+        sessionKey,
+        "DELETE"
+      );
+      return {
+        content: [{ type: "text", text: data ? JSON.stringify(data, null, 2) : "Deleted" }],
       };
     }
   );
@@ -224,9 +357,16 @@ export default {
       return new Response(JSON.stringify({
         status: "ok",
         server: "project-bridge",
-        version: "2.0.0",
+        version: "3.0.0",
         storage: "gs://claude-kb-projects/{project_id}/",
         auth: "claude.ai session key",
+        tools: [
+          "list_projects", "get_project",
+          "list_project_files", "get_project_file",
+          "get_project_instructions", "update_project_instructions",
+          "search_project_knowledge", "get_agent_context",
+          "create_project_file", "delete_project_file",
+        ],
       }), {
         headers: { "content-type": "application/json" },
       });
