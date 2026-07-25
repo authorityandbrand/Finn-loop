@@ -3,5 +3,9 @@ main = "src/index.ts"
 compatibility_date = "2024-12-01"
 
 [vars]
-# Set ANTHROPIC_API_KEY as a secret:
+# Auth: session token from request headers (automatic in logged-in sessions)
+# OR set ANTHROPIC_API_KEY as a fallback secret:
 # wrangler secret put ANTHROPIC_API_KEY
+#
+# When connected as a claude.ai connector, the session token flows
+# through automatically — no API key needed.

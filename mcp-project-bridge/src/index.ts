@@ -8,12 +8,26 @@ const SKILLS_BETA = "skills-2025-10-02";
 const FILES_BETA = "files-api-2025-04-14";
 
 interface Env {
-  ANTHROPIC_API_KEY: string;
+  ANTHROPIC_API_KEY?: string;
+}
+
+// Resolve auth: prefer session token from request header, fall back to env API key
+function resolveAuth(request: Request, env: Env): { header: string; value: string } {
+  const sessionToken = request.headers.get("x-session-token")
+    || request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
+
+  if (sessionToken) {
+    return { header: "authorization", value: `Bearer ${sessionToken}` };
+  }
+  if (env.ANTHROPIC_API_KEY) {
+    return { header: "x-api-key", value: env.ANTHROPIC_API_KEY };
+  }
+  throw new Error("No authentication available. Provide x-session-token header or set ANTHROPIC_API_KEY secret.");
 }
 
 async function anthropicFetch(
   path: string,
-  apiKey: string,
+  auth: { header: string; value: string },
   beta: string,
   params?: Record<string, string>
 ) {
@@ -25,7 +39,7 @@ async function anthropicFetch(
   }
   const res = await fetch(url.toString(), {
     headers: {
-      "x-api-key": apiKey,
+      [auth.header]: auth.value,
       "anthropic-version": ANTHROPIC_VERSION,
       "anthropic-beta": beta,
       "content-type": "application/json",
@@ -38,7 +52,7 @@ async function anthropicFetch(
   return res.json();
 }
 
-function createServer(apiKey: string) {
+function createServer(auth: { header: string; value: string }) {
   const server = new McpServer({
     name: "project-bridge",
     version: "1.0.0",
@@ -58,7 +72,7 @@ function createServer(apiKey: string) {
       if (source) params.source = source;
       if (limit) params.limit = String(limit);
 
-      const data = await anthropicFetch("/v1/skills", apiKey, SKILLS_BETA, params);
+      const data = await anthropicFetch("/v1/skills", auth, SKILLS_BETA, params);
       return {
         content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
       };
@@ -72,7 +86,7 @@ function createServer(apiKey: string) {
       skill_id: z.string().describe("The skill ID (e.g. skill_01J...)"),
     },
     async ({ skill_id }) => {
-      const data = await anthropicFetch(`/v1/skills/${skill_id}`, apiKey, SKILLS_BETA);
+      const data = await anthropicFetch(`/v1/skills/${skill_id}`, auth, SKILLS_BETA);
       return {
         content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
       };
@@ -93,7 +107,7 @@ function createServer(apiKey: string) {
       if (limit) params.limit = String(limit);
       if (scope_id) params.scope_id = scope_id;
 
-      const data = await anthropicFetch("/v1/files", apiKey, FILES_BETA, params);
+      const data = await anthropicFetch("/v1/files", auth, FILES_BETA, params);
       return {
         content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
       };
@@ -107,7 +121,7 @@ function createServer(apiKey: string) {
       file_id: z.string().describe("The file ID (e.g. file_011C...)"),
     },
     async ({ file_id }) => {
-      const data = await anthropicFetch(`/v1/files/${file_id}`, apiKey, FILES_BETA);
+      const data = await anthropicFetch(`/v1/files/${file_id}`, auth, FILES_BETA);
       return {
         content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
       };
@@ -124,7 +138,7 @@ function createServer(apiKey: string) {
       const url = `${ANTHROPIC_API}/v1/files/${file_id}/content`;
       const res = await fetch(url, {
         headers: {
-          "x-api-key": apiKey,
+          [auth.header]: auth.value,
           "anthropic-version": ANTHROPIC_VERSION,
           "anthropic-beta": FILES_BETA,
         },
@@ -149,7 +163,7 @@ function createServer(apiKey: string) {
     "anthropic://skills",
     { description: "All custom skills from your claude.ai account" },
     async () => {
-      const data = await anthropicFetch("/v1/skills", apiKey, SKILLS_BETA, { source: "custom", limit: "100" });
+      const data = await anthropicFetch("/v1/skills", auth, SKILLS_BETA, { source: "custom", limit: "100" });
       return {
         contents: [{
           uri: "anthropic://skills",
@@ -165,7 +179,7 @@ function createServer(apiKey: string) {
     "anthropic://files",
     { description: "All uploaded files/knowledge documents" },
     async () => {
-      const data = await anthropicFetch("/v1/files", apiKey, FILES_BETA, { limit: "100" });
+      const data = await anthropicFetch("/v1/files", auth, FILES_BETA, { limit: "100" });
       return {
         contents: [{
           uri: "anthropic://files",
@@ -190,7 +204,8 @@ export default {
     }
 
     if (url.pathname === "/mcp" || url.pathname === "/mcp/") {
-      const server = createServer(env.ANTHROPIC_API_KEY);
+      const auth = resolveAuth(request, env);
+      const server = createServer(auth);
       const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
       await server.connect(transport);
       return transport.handleRequest(request);
