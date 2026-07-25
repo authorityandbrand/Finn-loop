@@ -2,77 +2,89 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 
-const ANTHROPIC_API = "https://api.anthropic.com";
-const ANTHROPIC_VERSION = "2023-06-01";
-const SKILLS_BETA = "skills-2025-10-02";
-const FILES_BETA = "files-api-2025-04-14";
+// claude.ai Projects store knowledge in GCS at gs://claude-kb-projects/{project_id}/
+// Access is authenticated via the claude.ai session key (sk-ant-sid01-...)
+// No platform API key needed — the session key from a logged-in user is sufficient.
+
+const CLAUDE_API = "https://claude.ai/api";
 
 interface Env {
-  ANTHROPIC_API_KEY?: string;
+  CLAUDE_SESSION_KEY?: string;
+  ORG_ID?: string;
 }
 
-// Resolve auth: prefer session token from request header, fall back to env API key
-function resolveAuth(request: Request, env: Env): { header: string; value: string } {
-  const sessionToken = request.headers.get("x-session-token")
-    || request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
+// Resolve auth: session key from request header, env, or claude.ai connector flow
+function resolveSessionKey(request: Request, env: Env): string {
+  const fromHeader = request.headers.get("x-session-key")
+    || request.headers.get("cookie")?.match(/sessionKey=([^;]+)/)?.[1];
 
-  if (sessionToken) {
-    return { header: "authorization", value: `Bearer ${sessionToken}` };
+  const key = fromHeader || env.CLAUDE_SESSION_KEY;
+  if (!key) {
+    throw new Error(
+      "No session key available. Provide x-session-key header or set CLAUDE_SESSION_KEY secret. "
+      + "In a logged-in claude.ai connector, the session flows automatically."
+    );
   }
-  if (env.ANTHROPIC_API_KEY) {
-    return { header: "x-api-key", value: env.ANTHROPIC_API_KEY };
-  }
-  throw new Error("No authentication available. Provide x-session-token header or set ANTHROPIC_API_KEY secret.");
+  return key;
 }
 
-async function anthropicFetch(
+function resolveOrgId(request: Request, env: Env): string {
+  const fromHeader = request.headers.get("x-org-id");
+  const id = fromHeader || env.ORG_ID;
+  if (!id) {
+    throw new Error("No org ID available. Provide x-org-id header or set ORG_ID env var.");
+  }
+  return id;
+}
+
+async function claudeApiFetch(
   path: string,
-  auth: { header: string; value: string },
-  beta: string,
-  params?: Record<string, string>
-) {
-  const url = new URL(`${ANTHROPIC_API}${path}`);
-  if (params) {
-    for (const [k, v] of Object.entries(params)) {
-      url.searchParams.set(k, v);
-    }
-  }
-  const res = await fetch(url.toString(), {
-    headers: {
-      [auth.header]: auth.value,
-      "anthropic-version": ANTHROPIC_VERSION,
-      "anthropic-beta": beta,
-      "content-type": "application/json",
-    },
+  sessionKey: string,
+  method = "GET",
+  body?: unknown
+): Promise<unknown> {
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    "cookie": `sessionKey=${sessionKey}`,
+    "anthropic-client-sha": "unknown",
+    "anthropic-client-version": "unknown",
+  };
+
+  const res = await fetch(`${CLAUDE_API}${path}`, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
   });
+
   if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Anthropic API ${res.status}: ${body}`);
+    const text = await res.text();
+    throw new Error(`claude.ai API ${res.status}: ${text}`);
   }
-  return res.json();
+
+  const contentType = res.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    return res.json();
+  }
+  return res.text();
 }
 
-function createServer(auth: { header: string; value: string }) {
+function createServer(sessionKey: string, orgId: string) {
   const server = new McpServer({
     name: "project-bridge",
-    version: "1.0.0",
+    version: "2.0.0",
   });
 
-  // ── Skills (Project instructions/custom prompts) ──
+  // ── Projects ──
 
   server.tool(
-    "list_skills",
-    "List all skills from your claude.ai account. Filter by source: 'custom' (user-created) or 'anthropic' (built-in).",
-    {
-      source: z.enum(["custom", "anthropic"]).optional().describe("Filter by skill source"),
-      limit: z.number().min(1).max(100).optional().describe("Results per page (default 20)"),
-    },
-    async ({ source, limit }) => {
-      const params: Record<string, string> = {};
-      if (source) params.source = source;
-      if (limit) params.limit = String(limit);
-
-      const data = await anthropicFetch("/v1/skills", auth, SKILLS_BETA, params);
+    "list_projects",
+    "List all claude.ai Projects accessible to this organization.",
+    {},
+    async () => {
+      const data = await claudeApiFetch(
+        `/organizations/${orgId}/projects`,
+        sessionKey
+      );
       return {
         content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
       };
@@ -80,48 +92,35 @@ function createServer(auth: { header: string; value: string }) {
   );
 
   server.tool(
-    "get_skill",
-    "Get details of a specific skill by ID, including its version and metadata.",
+    "get_project",
+    "Get details of a specific claude.ai Project.",
     {
-      skill_id: z.string().describe("The skill ID (e.g. skill_01J...)"),
+      project_id: z.string().describe("The project UUID"),
     },
-    async ({ skill_id }) => {
-      const data = await anthropicFetch(`/v1/skills/${skill_id}`, auth, SKILLS_BETA);
+    async ({ project_id }) => {
+      const data = await claudeApiFetch(
+        `/organizations/${orgId}/projects/${project_id}`,
+        sessionKey
+      );
       return {
         content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
       };
     }
   );
 
-  // ── Files (Project knowledge) ──
+  // ── Project Knowledge (GCS-backed files) ──
 
   server.tool(
-    "list_files",
-    "List files uploaded to your Anthropic account. These represent project knowledge documents.",
+    "list_project_files",
+    "List all knowledge files in a claude.ai Project. Files are stored in GCS at gs://claude-kb-projects/{project_id}/.",
     {
-      limit: z.number().min(1).max(1000).optional().describe("Results per page (default 20)"),
-      scope_id: z.string().optional().describe("Filter by scope (e.g. session ID)"),
+      project_id: z.string().describe("The project UUID"),
     },
-    async ({ limit, scope_id }) => {
-      const params: Record<string, string> = {};
-      if (limit) params.limit = String(limit);
-      if (scope_id) params.scope_id = scope_id;
-
-      const data = await anthropicFetch("/v1/files", auth, FILES_BETA, params);
-      return {
-        content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
-      };
-    }
-  );
-
-  server.tool(
-    "get_file_metadata",
-    "Get metadata for a specific file by ID.",
-    {
-      file_id: z.string().describe("The file ID (e.g. file_011C...)"),
-    },
-    async ({ file_id }) => {
-      const data = await anthropicFetch(`/v1/files/${file_id}`, auth, FILES_BETA);
+    async ({ project_id }) => {
+      const data = await claudeApiFetch(
+        `/organizations/${orgId}/projects/${project_id}/docs`,
+        sessionKey
+      );
       return {
         content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
       };
@@ -129,60 +128,84 @@ function createServer(auth: { header: string; value: string }) {
   );
 
   server.tool(
-    "download_file",
-    "Download the content of a file by ID. Only works for files marked as downloadable.",
+    "get_project_file",
+    "Get the content of a specific knowledge file from a claude.ai Project.",
     {
-      file_id: z.string().describe("The file ID to download"),
+      project_id: z.string().describe("The project UUID"),
+      file_id: z.string().describe("The file/document UUID"),
     },
-    async ({ file_id }) => {
-      const url = `${ANTHROPIC_API}/v1/files/${file_id}/content`;
-      const res = await fetch(url, {
-        headers: {
-          [auth.header]: auth.value,
-          "anthropic-version": ANTHROPIC_VERSION,
-          "anthropic-beta": FILES_BETA,
-        },
-      });
-      if (!res.ok) {
-        return {
-          content: [{ type: "text", text: `Download failed: ${res.status} ${await res.text()}` }],
-          isError: true,
-        };
-      }
-      const text = await res.text();
+    async ({ project_id, file_id }) => {
+      const data = await claudeApiFetch(
+        `/organizations/${orgId}/projects/${project_id}/docs/${file_id}`,
+        sessionKey
+      );
       return {
-        content: [{ type: "text", text }],
+        content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
       };
     }
   );
 
-  // ── MCP Resources (expose files as browsable resources) ──
+  // ── Project Instructions ──
+
+  server.tool(
+    "get_project_instructions",
+    "Get the custom instructions configured for a claude.ai Project.",
+    {
+      project_id: z.string().describe("The project UUID"),
+    },
+    async ({ project_id }) => {
+      // Project details include the instructions/prompt field
+      const data = await claudeApiFetch(
+        `/organizations/${orgId}/projects/${project_id}`,
+        sessionKey
+      ) as Record<string, unknown>;
+
+      const instructions = data?.prompt_template
+        || data?.custom_instructions
+        || data?.description
+        || "No instructions found in project response";
+
+      return {
+        content: [{ type: "text", text: typeof instructions === "string" ? instructions : JSON.stringify(instructions, null, 2) }],
+      };
+    }
+  );
+
+  // ── Cross-project search ──
+
+  server.tool(
+    "search_project_knowledge",
+    "Search across knowledge files in a specific project.",
+    {
+      project_id: z.string().describe("The project UUID"),
+      query: z.string().describe("Search query"),
+    },
+    async ({ project_id, query }) => {
+      // Use the project knowledge search endpoint
+      const data = await claudeApiFetch(
+        `/organizations/${orgId}/projects/${project_id}/docs/search?q=${encodeURIComponent(query)}`,
+        sessionKey
+      );
+      return {
+        content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
+      };
+    }
+  );
+
+  // ── MCP Resources ──
 
   server.resource(
-    "skills-list",
-    "anthropic://skills",
-    { description: "All custom skills from your claude.ai account" },
+    "projects-list",
+    "claude://projects",
+    { description: "All claude.ai Projects in this organization" },
     async () => {
-      const data = await anthropicFetch("/v1/skills", auth, SKILLS_BETA, { source: "custom", limit: "100" });
+      const data = await claudeApiFetch(
+        `/organizations/${orgId}/projects`,
+        sessionKey
+      );
       return {
         contents: [{
-          uri: "anthropic://skills",
-          mimeType: "application/json",
-          text: JSON.stringify(data, null, 2),
-        }],
-      };
-    }
-  );
-
-  server.resource(
-    "files-list",
-    "anthropic://files",
-    { description: "All uploaded files/knowledge documents" },
-    async () => {
-      const data = await anthropicFetch("/v1/files", auth, FILES_BETA, { limit: "100" });
-      return {
-        contents: [{
-          uri: "anthropic://files",
+          uri: "claude://projects",
           mimeType: "application/json",
           text: JSON.stringify(data, null, 2),
         }],
@@ -198,17 +221,33 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname === "/health") {
-      return new Response(JSON.stringify({ status: "ok", server: "project-bridge" }), {
+      return new Response(JSON.stringify({
+        status: "ok",
+        server: "project-bridge",
+        version: "2.0.0",
+        storage: "gs://claude-kb-projects/{project_id}/",
+        auth: "claude.ai session key",
+      }), {
         headers: { "content-type": "application/json" },
       });
     }
 
     if (url.pathname === "/mcp" || url.pathname === "/mcp/") {
-      const auth = resolveAuth(request, env);
-      const server = createServer(auth);
-      const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-      await server.connect(transport);
-      return transport.handleRequest(request);
+      try {
+        const sessionKey = resolveSessionKey(request, env);
+        const orgId = resolveOrgId(request, env);
+        const server = createServer(sessionKey, orgId);
+        const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+        await server.connect(transport);
+        return transport.handleRequest(request);
+      } catch (err) {
+        return new Response(JSON.stringify({
+          error: err instanceof Error ? err.message : "Unknown error",
+        }), {
+          status: 401,
+          headers: { "content-type": "application/json" },
+        });
+      }
     }
 
     return new Response("Not found", { status: 404 });
