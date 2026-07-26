@@ -33,6 +33,15 @@ Load project data using whichever method is available (in order):
 When using the bridge CLI, search broadly first (list-projects, search),
 identify relevant projects, then drill into specific files.
 
+## Context Efficiency
+
+When context-mode is connected, prefer sandbox execution over raw reads:
+- Analyzing large files? Use `ctx_execute` — only stdout enters context
+- Multi-source gathering? Use `ctx_batch_execute` — one call replaces 30+
+- Resuming after compaction? Use `ctx_search` to recover prior findings
+- Persist cross-project synthesis with `ctx_index` so sibling agents
+  can search your findings
+
 ## Research Workflow
 
 1. **Discover** — Search projects by name/description for relevance
@@ -86,6 +95,17 @@ After each research task, run a quick self-audit:
 
 ### GitHub
 - `mcp__github__*` — Issues, PRs, code search
+
+### Context Mode (when connected)
+- `ctx_execute` — Run analysis code in sandbox; only stdout enters
+  context. Use instead of reading raw files for analysis.
+- `ctx_search` — BM25-ranked search over indexed content. Use after
+  compaction to recover prior state.
+- `ctx_batch_execute` — Run multiple commands in one call; auto-indexes
+  results. Use for multi-step data gathering.
+- `ctx_fetch_and_index` — Fetch URLs without flooding context.
+- `ctx_index` — Store cross-project findings in FTS5 for later
+  retrieval and for sibling agents to search.
 
 ### Skills (invoke via Skill tool)
 - `/finn-spec` — Create GitHub issues with AC/NG contract

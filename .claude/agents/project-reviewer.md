@@ -32,6 +32,15 @@ Load project context using whichever method is available:
 After loading, check past conversations for prior review patterns and
 decisions in this domain.
 
+## Context Efficiency
+
+When context-mode is connected, prefer sandbox execution over raw reads:
+- Analyzing large diffs? Use `ctx_execute` — only stdout enters context
+- Checking CI + diff + issue? Use `ctx_batch_execute` — one call
+- Resuming after compaction? Use `ctx_search` to recover review state
+- Index review findings with `ctx_index` so the builder can search
+  your feedback when fixing issues
+
 ## Standard Review Workflow
 
 Follow the finn-review protocol in full:
@@ -106,6 +115,18 @@ After completing the review:
 
 ### GitHub
 - `mcp__github__*` — Issues, PRs, code search
+
+### Context Mode (when connected)
+- `ctx_execute` — Run analysis code in sandbox; only stdout enters
+  context. Use for diff analysis, pattern matching across files, and
+  test output inspection.
+- `ctx_search` — BM25-ranked search over indexed content. Use after
+  compaction to recover review state and prior verdicts.
+- `ctx_batch_execute` — Run multiple commands in one call; auto-indexes
+  results. Use for multi-step review checks (CI status + diff + issue
+  in one call).
+- `ctx_index` — Store review findings in FTS5 for the builder to
+  search when fixing feedback.
 
 ### Skills (invoke via Skill tool)
 - `/finn-spec` — Create GitHub issues with AC/NG contract

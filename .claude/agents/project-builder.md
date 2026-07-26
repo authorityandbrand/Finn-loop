@@ -32,6 +32,16 @@ After loading, scan the file manifest for coding standards, architecture
 docs, and pattern libraries relevant to the issue. Check past
 conversations for prior discussion of this domain area.
 
+## Context Efficiency
+
+When context-mode is connected, prefer sandbox execution over raw reads:
+- Analyzing test output or build logs? Use `ctx_execute` — only stdout
+  enters context
+- Running lint + typecheck + test? Use `ctx_batch_execute` — one call
+- Resuming after compaction? Use `ctx_search` to recover build state
+- Index implementation decisions with `ctx_index` so reviewers can
+  search your reasoning
+
 ## Standard Build Workflow
 
 Follow the finn-build protocol in full:
@@ -108,6 +118,18 @@ After completing the build:
 
 ### GitHub
 - `mcp__github__*` — Issues, PRs, code search
+
+### Context Mode (when connected)
+- `ctx_execute` — Run analysis code in sandbox; only stdout enters
+  context. Use for code analysis, data processing, and test output
+  inspection instead of reading raw output into context.
+- `ctx_search` — BM25-ranked search over indexed content. Use after
+  compaction to recover build state and prior decisions.
+- `ctx_batch_execute` — Run multiple commands in one call; auto-indexes
+  results. Use for multi-step build verification (lint + typecheck +
+  test in one call).
+- `ctx_index` — Store implementation decisions and patterns in FTS5
+  for later retrieval by reviewers and future builds.
 
 ### Skills (invoke via Skill tool)
 - `/finn-spec` — Create GitHub issues with AC/NG contract

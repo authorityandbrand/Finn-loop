@@ -23,6 +23,14 @@ Load project context using whichever method is available:
    ```
 3. **Spawn prompt context** (fallback): Work from spawn prompt context
 
+## Context Efficiency
+
+When context-mode is connected, prefer sandbox execution over raw reads:
+- Analyzing data? Use `ctx_execute` — only stdout enters context
+- Gathering from multiple sources? Use `ctx_batch_execute` — one call
+- Resuming after compaction? Use `ctx_search` before re-reading files
+- Persist findings with `ctx_index` so they survive compaction
+
 ## Knowledge Lifecycle
 
 1. **Read** — Load all KB files relevant to your task
@@ -70,6 +78,16 @@ After each task, run a quick self-audit:
 
 ### GitHub
 - `mcp__github__*` — Issues, PRs, code search
+
+### Context Mode (when connected)
+- `ctx_execute` — Run analysis code in sandbox; only stdout enters
+  context. Use instead of reading raw files for analysis.
+- `ctx_search` — BM25-ranked search over indexed content. Use after
+  compaction to recover prior state.
+- `ctx_batch_execute` — Run multiple commands in one call; auto-indexes
+  results. Use for multi-step data gathering.
+- `ctx_fetch_and_index` — Fetch URLs without flooding context.
+- `ctx_index` — Store findings in FTS5 for later retrieval.
 
 ### Skills (invoke via Skill tool)
 - `/finn-spec` — Create GitHub issues with AC/NG contract
