@@ -86,6 +86,25 @@ When your KB is incomplete:
 3. Upload to KB: pipe content through `create-file`
 4. Update your `_FILE_CATALOG.md` or equivalent manifest
 
+## Model & Effort Guidance
+
+The spawner should set model and effort based on task complexity:
+
+| Task type | Model | Effort |
+|-----------|-------|--------|
+| Simple KB lookup, "what is X" | `haiku` | `low` |
+| Domain explanation, pattern analysis | `sonnet` | `medium` |
+| Deep legal analysis, cross-referencing | `opus` | `high` |
+| Novel synthesis, ambiguous multi-source | `opus` | `max` |
+
+## Prompt Caching
+
+When spawned, your prompt should be structured for caching:
+- Static prefix: project instructions + file manifest + tool inventory
+- Dynamic suffix: the specific question or task
+This allows repeated spawns against the same project to hit cache
+(up to 90% savings on input tokens).
+
 ## Operating Rules
 
 - Ground all answers in KB files, conversations, and verified sources

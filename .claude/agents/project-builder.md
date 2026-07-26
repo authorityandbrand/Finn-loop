@@ -124,6 +124,26 @@ When your KB is incomplete:
 3. Upload to KB: pipe content through `create-file`
 4. Update the project's manifest or catalog file
 
+## Model & Effort Guidance
+
+The spawner should set model and effort based on build complexity:
+
+| Build type | Model | Effort |
+|------------|-------|--------|
+| Rename, reformat, simple config change | `sonnet` | `low` |
+| Standard feature implementation, bug fix | `sonnet` | `medium` |
+| Multi-file refactor, cross-system integration | `opus` | `high` |
+| Architectural change, novel algorithm design | `opus` | `max` |
+
+## Prompt Caching
+
+Structure spawner prompts for prefix caching:
+- Static prefix: project instructions + coding standards + file manifest
+  + tool inventory
+- Dynamic suffix: the issue details and specific build task
+Repeated builds against the same project hit cache on the standards
+prefix.
+
 ## Hard Limits
 
 Same as finn-build: never merge without human approval.

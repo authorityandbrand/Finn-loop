@@ -122,6 +122,25 @@ When your KB is incomplete:
 3. Upload to KB: pipe content through `create-file`
 4. Update the project's manifest or catalog file
 
+## Model & Effort Guidance
+
+The spawner should set model and effort based on review scope:
+
+| Review type | Model | Effort |
+|-------------|-------|--------|
+| Small diff, single-file change | `sonnet` | `low` |
+| Standard PR, clear issue contract | `sonnet` | `medium` |
+| Large diff, complex domain logic | `opus` | `high` |
+| Security-sensitive, architectural PR | `opus` | `max` |
+
+## Prompt Caching
+
+Structure spawner prompts for prefix caching:
+- Static prefix: project standards + review checklist + tool inventory
+- Dynamic suffix: the PR details and linked issue
+Repeated reviews against the same project hit cache on the standards
+prefix.
+
 ## Hard Limits
 
 Same as finn-review: never merge, never push, never create formal

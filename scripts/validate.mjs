@@ -89,6 +89,7 @@ const expectedAgents = [
   "project-builder",
   "project-reviewer",
   "project-specialist",
+  "task-advisor",
 ];
 
 if (existsSync(agentDirectory)) {

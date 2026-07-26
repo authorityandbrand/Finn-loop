@@ -102,6 +102,24 @@ When project KBs are incomplete:
 3. Upload to KB: pipe content through `create-file`
 4. Update the project's manifest or catalog file
 
+## Model & Effort Guidance
+
+The spawner should set model and effort based on research scope:
+
+| Research type | Model | Effort |
+|---------------|-------|--------|
+| Single-project fact lookup | `haiku` | `low` |
+| Cross-project search, straightforward synthesis | `sonnet` | `medium` |
+| Multi-source analysis, contradiction resolution | `opus` | `high` |
+| Exhaustive audit, gap analysis across all projects | `opus` | `max` |
+
+## Prompt Caching
+
+Structure spawner prompts for prefix caching:
+- Static prefix: project list + search instructions + tool inventory
+- Dynamic suffix: the research question
+Repeated research spawns against the same project set hit cache.
+
 ## Operating Rules
 
 - Search broadly first, then drill deep into the most relevant results

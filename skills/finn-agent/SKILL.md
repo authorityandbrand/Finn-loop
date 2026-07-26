@@ -9,7 +9,7 @@ Spawns agents that are specialized through claude.ai Project knowledge.
 The project bridge MCP server provides the knowledge layer; this skill
 orchestrates the wiring.
 
-## 1. Identify the task
+## 1. Identify the task and select model tier
 
 Ask the user what they need:
 
@@ -19,6 +19,22 @@ Ask the user what they need:
 - **Review with project standards** → project-reviewer agent
 
 If the task type is obvious from context, confirm rather than asking.
+
+For non-obvious routing, spawn the task-advisor agent first:
+```
+Agent(subagent_type: "task-advisor", prompt: "<task description>")
+```
+It returns a structured recommendation with agent_type, model, and
+effort level. Use those values when spawning the actual agent.
+
+Select model and effort based on complexity (see CLAUDE.md Model
+Selection table), or use the task-advisor's recommendation:
+
+| Complexity | Model | Effort |
+|------------|-------|--------|
+| Simple lookup | `haiku` | `low` |
+| Standard work | `sonnet` | `medium` |
+| Complex reasoning | `opus` | `high` or `max` |
 
 ## 2. Select the project
 
@@ -51,12 +67,18 @@ Once a project is selected:
 Use the Agent tool:
 
 - Set `subagent_type` to the chosen agent type from step 1
-- Build the prompt with three sections:
-  1. **Task** — the user's request in full
-  2. **Project instructions** — the project's custom instructions
-     verbatim
-  3. **Available knowledge** — the file manifest (names and IDs) so
-     the agent knows what it can load
+- Set `model` based on the complexity assessment from step 1 (e.g.,
+  `model: "sonnet"` for standard work, `model: "opus"` for complex)
+- Build the prompt with three sections, ordered for prompt caching:
+  1. **Project instructions** — the project's custom instructions
+     verbatim (static, cacheable prefix)
+  2. **Available knowledge** — the file manifest (names and IDs) so
+     the agent knows what it can load (static, cacheable prefix)
+  3. **Task** — the user's request in full (dynamic, after the
+     cacheable prefix)
+
+This ordering ensures repeated spawns against the same project cache
+the static prefix (up to 90% savings on input tokens).
 
 For project-builder and project-reviewer agents, include the relevant
 Linear issue identifier or PR number in the task section.
