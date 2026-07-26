@@ -172,13 +172,55 @@ switch (cmd) {
     const convos = await api(`/projects/${args[0]}/conversations`);
     console.log(JSON.stringify((convos || []).map(c => ({
       id: c.uuid, name: c.name || "(untitled)", updated: c.updated_at,
+      message_count: c.message_count || 0,
     })), null, 2));
     break;
   }
 
+  case "get-conversation": {
+    if (!args[0]) { console.error("Usage: bridge-cli.mjs get-conversation <conversation-id>"); process.exit(1); }
+    const convo = await api(`/chat_conversations/${args[0]}`);
+    const msgs = (convo.chat_messages || []).map(m => ({
+      role: m.sender, text: (m.content || []).filter(c => c.type === "text").map(c => c.text).join("\n").slice(0, 500),
+    }));
+    console.log(JSON.stringify({
+      id: convo.uuid, name: convo.name || "(untitled)",
+      project: convo.project_uuid, created: convo.created_at, updated: convo.updated_at,
+      message_count: msgs.length,
+      messages: msgs,
+    }, null, 2));
+    break;
+  }
+
+  case "delete-conversation": {
+    if (!args[0]) { console.error("Usage: bridge-cli.mjs delete-conversation <conversation-id>"); process.exit(1); }
+    await api(`/chat_conversations/${args[0]}`, { method: "DELETE" });
+    console.log("Deleted");
+    break;
+  }
+
+  case "list-all-conversations": {
+    const projects = await api("/projects");
+    const all = [];
+    for (const p of projects) {
+      try {
+        const convos = await api(`/projects/${p.uuid}/conversations`);
+        for (const c of (convos || [])) {
+          all.push({
+            id: c.uuid, name: c.name || "(untitled)",
+            project: p.name, project_id: p.uuid,
+            updated: c.updated_at, message_count: c.message_count || 0,
+          });
+        }
+      } catch {}
+    }
+    console.log(JSON.stringify(all, null, 2));
+    break;
+  }
+
   default:
-    console.log("Read:  list-projects, get-project, list-files, get-file, get-instructions, search, agent-context");
-    console.log("Write: create-file, update-file, delete-file, set-instructions, delete-project");
-    console.log("Context: list-conversations");
+    console.log("Read:    list-projects, get-project, list-files, get-file, get-instructions, search, agent-context");
+    console.log("Write:   create-file, update-file, delete-file, set-instructions, delete-project");
+    console.log("Context: list-conversations, get-conversation, delete-conversation, list-all-conversations");
     console.log("Env: CLAUDE_SESSION_KEY (required), CLAUDE_ORG_ID (optional)");
 }
