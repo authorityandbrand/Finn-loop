@@ -1,13 +1,13 @@
 # Finn-loop
 
-Three Claude Code skills that turn Linear + GitHub into a small, human-gated
-AI software factory:
+Four Claude Code skills that turn Linear + GitHub into a small, human-gated
+AI software factory with project-aware specialized agents:
 
 **idea → `/finn-spec` interviews you and files the issue → you label it
 `agent-ready` → `/finn-build` claims it and opens a PR → `/finn-review` posts
 a verdict → you merge.**
 
-Three skills, one approval label, one rule: **humans merge**.
+Four skills, one approval label, one rule: **humans merge**.
 
 - [`skills/finn-spec`](skills/finn-spec/SKILL.md) — researches the repo,
   interviews you until the behavior is unambiguous, then files a Linear issue
@@ -18,6 +18,9 @@ Three skills, one approval label, one rule: **humans merge**.
 - [`skills/finn-review`](skills/finn-review/SKILL.md) — reviews open PRs against
   their linked issue and required GitHub checks, then posts a three-group
   verdict. Runs repeatedly with `/loop /finn-review`.
+- [`skills/finn-agent`](skills/finn-agent/SKILL.md) — spawns specialized agents
+  wired to claude.ai Projects. Loads project instructions and knowledge into
+  agent context for domain-expert builders, reviewers, and researchers.
 
 The `finn-` prefix avoids collisions with Claude Code's bundled commands and
 with generic personal skills such as `/review` or `/build`.
@@ -49,6 +52,8 @@ Set up Finn-loop from https://github.com/finna/Finn-loop.
    skills/finn-spec/SKILL.md   → .claude/skills/finn-spec/SKILL.md
    skills/finn-build/SKILL.md  → .claude/skills/finn-build/SKILL.md
    skills/finn-review/SKILL.md → .claude/skills/finn-review/SKILL.md
+   skills/finn-agent/SKILL.md  → .claude/skills/finn-agent/SKILL.md
+   .claude/agents/*.md         → .claude/agents/*.md (all agent definitions)
 
 2. Ask for my Linear team key (for example ENG), then replace every TEAM
    placeholder in the copied skills with that exact key.
@@ -74,16 +79,24 @@ Set up Finn-loop from https://github.com/finna/Finn-loop.
    connected. Explain that without it, Finn-loop can post the PR link but a
    merge may not automatically move the Linear issue to Done.
 
-8. Validate that all three copied SKILL.md files have valid YAML frontmatter.
+8. Validate that all four copied SKILL.md files have valid YAML frontmatter.
    Tell me to run `/reload-skills` (or restart Claude Code), then have me
-   confirm `/skills` lists finn-spec, finn-build, and finn-review.
+   confirm `/skills` lists finn-spec, finn-build, finn-review, and finn-agent.
 
 9. Smoke test by listing:
    - unassigned Linear issues labeled agent-ready but not blocked
    - the target repo's default branch and required GitHub checks
    - open pull requests and their Finn-loop labels
-   All reads succeeding and all three skills appearing in `/skills` means the
+   All reads succeeding and all four skills appearing in `/skills` means the
    installation is ready. Then tell me how to run my first spec and loop.
+
+10. (Optional) Connect the project bridge for project-wired agents:
+    - Deploy the bridge: `cd mcp-project-bridge && npm install && wrangler deploy`
+    - Set secrets: `wrangler secret put CLAUDE_SESSION_KEY` and
+      `wrangler secret put ORG_ID`
+    - Add to Claude Code:
+      `claude mcp add --transport http project-bridge https://project-bridge-mcp.{account}.workers.dev/mcp`
+    - Verify with `/finn-agent` — it should be able to list projects
 ```
 
 ## Daily rhythm (~15 minutes)
@@ -103,6 +116,32 @@ Run only one builder loop per Linear team. The Linear assignee is a cooperative
 lock between people, but two simultaneous sessions authenticated as the same
 person cannot reliably lock each other. Use separate clean worktrees if you
 intentionally operate on more than one repository task at once.
+
+## Project-wired agents
+
+`/finn-agent` spawns specialized agents that load domain knowledge from
+claude.ai Projects before working. The project bridge MCP server
+(`mcp-project-bridge/`) reads project instructions and knowledge files from
+GCS and makes them available as MCP tools.
+
+| Agent type | What it does |
+| --- | --- |
+| `project-specialist` | Deep expert on one project — loads instructions and knowledge, answers domain questions |
+| `knowledge-researcher` | Searches across multiple projects, synthesizes cross-domain findings |
+| `project-builder` | Finn-loop builder that loads project-specific standards before implementing |
+| `project-reviewer` | Finn-loop reviewer that loads project-specific standards before reviewing |
+
+Agent definitions live in `.claude/agents/` and are picked up automatically by
+Claude Code. Use them directly with `Agent(subagent_type: "project-specialist")`
+or through the `/finn-agent` skill which handles project selection and context
+loading.
+
+### Security
+
+Project knowledge stays within the authenticated session. Agents never commit,
+push, or expose project content to external services. The bridge authenticates
+every request with the claude.ai session key — unauthenticated calls are
+rejected. See `CLAUDE.md` for the full security policy.
 
 ## What `loop-approved` means
 

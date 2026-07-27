@@ -1,0 +1,10 @@
+name = "project-bridge-mcp"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+
+[vars]
+# Auth: claude.ai session key (sk-ant-sid01-...) + org ID
+# In a logged-in claude.ai connector, the session key flows automatically.
+# For standalone use, set as secrets:
+#   wrangler secret put CLAUDE_SESSION_KEY
+#   wrangler secret put ORG_ID
