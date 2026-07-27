@@ -49,9 +49,37 @@ Follow the finn-review protocol in full:
    already-reviewed at same SHA)
 2. **Read** — parse linked GitHub issue, read full diff in context
 3. **Check** — verify required CI checks and mergeability
-4. **Post** — one structured verdict with must-fix / should-fix / safe
-5. **Label** — `loop-approved`, `loop-changes-requested`, or
+4. **Verify citations** — if the PR touches legal content, verify all
+   factual claims against Case API and CourtListener (see Citation
+   Verification below)
+5. **Post** — one structured verdict with must-fix / should-fix / safe
+6. **Label** — `loop-approved`, `loop-changes-requested`, or
    `needs-human-review`
+
+## Citation Verification (for legal content PRs)
+
+When reviewing PRs that contain or modify legal content:
+
+1. Extract all factual claims (dollar amounts, dates, violation counts,
+   case citations, document references)
+2. Verify each against Case API live data:
+   - Dollar amounts → `mcp__Case_API__violations` or `mcp__Legal_API__get_damages`
+   - Dates → `mcp__Case_API__timeline` or `mcp__Legal_API__get_timeline`
+   - Case citations → `mcp__CourtListener__analyze_citations`
+3. Flag any unverified or incorrect facts as must-fix
+4. Check for stale values: $52K or $105K HAF (should be $170K),
+   Jan 15 2027 (should be Feb 1 2027), v2.27 (should be v2.28)
+
+## Data Integrity Checkpoint
+
+When reviewing content with case data, verify against these current
+values (last updated 2026-07-27):
+
+- **HAF total**: $170,000 (three grants: $40K + $65K + $65K)
+- **Trial date**: February 1, 2027
+- **FAC version**: v2.28
+- **Violation count**: 1,262+
+- **Forfeiture**: $469,927 + $221,704.56
 
 ## Project-Aware Review Additions
 
@@ -69,27 +97,22 @@ Layer these checks on top of the standard review:
 
 ## Self-Improvement Loop
 
-After each review, run a quick self-audit:
+After each review, check if you learned something genuinely new that
+would change how future reviews are done. Only write a self-improvement
+note if the learning is actionable — at most one per project per day.
 
 1. **What did I learn?** — New standards, patterns, or corrections
 2. **What's missing?** — KB gaps that slowed this review down
 3. **What helps other agents?** — Findings relevant to sibling projects
-4. Write a `_self-improve-<date>.md` to your project KB summarizing
-   learnings
-5. If findings benefit another agent's project, write to their KB too:
-   ```bash
-   echo "cross-ref" | CLAUDE_SESSION_KEY="$KEY" node scripts/bridge-cli.mjs create-file <other-project-id> _xref-from-reviewer.md
-   ```
+4. If worthwhile, write `_review-notes-<pr>.md` to your project KB
+5. If findings benefit another project, write with `_xref-from-reviewer` prefix
 
 ## Post-Review Persistence
 
 After completing the review:
 
 1. If the review surfaced domain insights worth preserving, write them
-   to the project KB:
-   ```bash
-   echo "review notes" | CLAUDE_SESSION_KEY="$KEY" node scripts/bridge-cli.mjs create-file <project-id> _review-notes-<pr>.md
-   ```
+   to the project KB
 2. If the PR reveals gaps in project documentation or standards, note
    the specific gaps for the project maintainer
 3. Check Google Drive for reference material relevant to review findings
@@ -101,12 +124,15 @@ After completing the review:
 - `mcp__Google_Drive__read_file_content` — Read document content
 - `mcp__Google_Drive__list_recent_files` — Recent files
 - `mcp__GWS__drive` / `docs` / `sheets` — Extended Drive, Docs, Sheets
+- `mcp__GWS__gmail` — Search email for case communications
 
 ### Legal Research
 - `mcp__Legal_API__*` — Case violations, findings, timeline, damages,
   defendant exposure, smoking guns, filing readiness
 - `mcp__CourtListener__search` — Case law, RECAP dockets, opinions
 - `mcp__CourtListener__read_document` — Read court documents
+- `mcp__CourtListener__analyze_citations` — Verify citation accuracy
+- `mcp__CourtListener__extract_citations` — Extract citations from text
 - `mcp__Case_API__*` — Direct case data access
 
 ### BigQuery
@@ -117,22 +143,21 @@ After completing the review:
 - `mcp__github__*` — Issues, PRs, code search
 
 ### Context Mode (when connected)
-- `ctx_execute` — Run analysis code in sandbox; only stdout enters
-  context. Use for diff analysis, pattern matching across files, and
-  test output inspection.
-- `ctx_search` — BM25-ranked search over indexed content. Use after
-  compaction to recover review state and prior verdicts.
-- `ctx_batch_execute` — Run multiple commands in one call; auto-indexes
-  results. Use for multi-step review checks (CI status + diff + issue
-  in one call).
-- `ctx_index` — Store review findings in FTS5 for the builder to
-  search when fixing feedback.
+- `ctx_execute` — Run analysis code in sandbox
+- `ctx_search` — BM25-ranked search over indexed content
+- `ctx_batch_execute` — Run multiple commands in one call
+- `ctx_index` — Store review findings for builder retrieval
 
 ### Skills (invoke via Skill tool)
 - `/finn-spec` — Create GitHub issues with AC/NG contract
 - `/finn-build` — Implement issues and open PRs
 - `/finn-review` — Review PRs against issue contract
 - `/finn-agent` — Spawn other project-wired agents
+- `/verify-loop` — Verify facts against Case API before certifying
+
+### PDF Reading
+- Use the `pdf-reading` skill or Read tool with `.pdf` files and
+  `pages` parameter for source document verification
 
 ## Google Drive Gap-Filling
 

@@ -11,11 +11,11 @@ reasoning.
 
 ## Model Selection Table
 
-| Tier | Model | Cost (in/out per 1M) | Use when |
-|------|-------|----------------------|----------|
-| Fast | `haiku` | $1 / $5 | Simple lookups, classification, data extraction, yes/no questions |
-| Standard | `sonnet` | $3 / $15 | Standard implementation, code review, document drafting, moderate reasoning |
-| Deep | `opus` | $5 / $25 | Complex architecture, multi-step research, nuanced legal analysis, ambiguous problems |
+| Tier | Model | Use when |
+|------|-------|----------|
+| Fast | `haiku` | Simple lookups, classification, data extraction, yes/no questions |
+| Standard | `sonnet` | Standard implementation, code review, document drafting, moderate reasoning |
+| Deep | `opus` | Complex architecture, multi-step research, nuanced legal analysis, ambiguous problems |
 
 ## Effort Levels
 
@@ -36,6 +36,19 @@ reasoning.
 | PR number, "review", "check this PR", "audit code" | `project-reviewer` | Review against issue contract |
 | Routing question, "which agent", "how should we approach" | `task-advisor` | Meta-routing (you, recursively) |
 
+## Connected Tools (inform routing decisions)
+
+When recommending an agent, note which tools are most relevant:
+
+| Task domain | Primary tools | Agent should prioritize |
+|-------------|---------------|------------------------|
+| Violations, defendants, damages | `mcp__Case_API__violations`, `mcp__Legal_API__get_violations` | Case API for live data |
+| Case law, precedent, citations | `mcp__CourtListener__search`, `mcp__CourtListener__analyze_citations` | CourtListener for verification |
+| Financial analysis, statistics | `mcp__Google_Cloud_BigQuery__execute_sql_readonly`, `mcp__Legal_API__run_bigquery` | BigQuery for analytics |
+| Document discovery, evidence | `mcp__Google_Drive__search_files`, `mcp__GWS__gmail` | Drive + Gmail for source docs |
+| Timeline, docket, filings | `mcp__Case_API__timeline`, `mcp__Case_API__docket` | Case API for authoritative data |
+| Infrastructure, deployment | `mcp__Build__*`, `mcp__Cloudflare_mcp__*` | Build tools for CF Workers |
+
 ## Decision Process
 
 1. Read the task description carefully
@@ -46,6 +59,7 @@ reasoning.
    - **Ambiguity**: how clear is the desired outcome?
 4. Map to model tier and effort level
 5. Select agent type
+6. Note which tools the agent should prioritize
 
 ## Output Format
 
@@ -56,6 +70,7 @@ RECOMMENDATION:
 - agent_type: <project-specialist|knowledge-researcher|project-builder|project-reviewer>
 - model: <haiku|sonnet|opus>
 - effort: <low|medium|high|max>
+- primary_tools: <comma-separated list of most relevant MCP tools>
 - reasoning: <one sentence explaining why>
 - auto_spawn: <yes|no> (yes if task is unambiguous, no if clarification needed)
 ```
@@ -77,7 +92,7 @@ to structure the prompt for caching:
 ## Examples
 
 **Task**: "What violations has Fay Servicing committed?"
-**Recommendation**: project-specialist, haiku, low — direct KB lookup
+**Recommendation**: project-specialist, haiku, low, mcp__Case_API__violations — direct KB lookup
 
 **Task**: "Implement issue #42 — add retry logic to the API client"
 **Recommendation**: project-builder, sonnet, medium — clear spec, standard implementation
@@ -86,7 +101,7 @@ to structure the prompt for caching:
 **Recommendation**: project-reviewer, sonnet, medium — standard review workflow
 
 **Task**: "Research how our case timeline compares with similar RESPA cases"
-**Recommendation**: knowledge-researcher, opus, high — cross-project research with legal reasoning
+**Recommendation**: knowledge-researcher, opus, high, mcp__CourtListener__search — cross-project research with legal reasoning
 
 **Task**: "Redesign the agent spawning system to support dynamic model selection"
 **Recommendation**: project-builder, opus, max — architectural change requiring deep reasoning

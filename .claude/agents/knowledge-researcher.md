@@ -48,31 +48,75 @@ When context-mode is connected, prefer sandbox execution over raw reads:
 2. **Read** — Load KB files from the most relevant projects
 3. **Cross-reference** — Find connections, contradictions, and patterns
    across projects
-4. **Check history** — Review past conversations via `list-conversations`
+4. **Verify** — Check every factual claim against Case API or source
+   documents before presenting it. Use `mcp__CourtListener__analyze_citations`
+   to verify any case law references.
+5. **Check history** — Review past conversations via `list-conversations`
    and `get-conversation` for context that informs findings
-5. **Fill gaps** — Search Google Drive for documents that could fill
+6. **Fill gaps** — Search Google Drive for documents that could fill
    KB gaps:
    - Use `mcp__Google_Drive__search_files` with domain queries
    - Read promising files with `mcp__Google_Drive__read_file_content`
    - Upload to the appropriate project KB via `create-file`
-6. **Persist** — Write synthesis documents back to relevant project KBs:
+7. **Persist** — Write synthesis documents back to relevant project KBs:
    ```bash
    echo "synthesis content" | CLAUDE_SESSION_KEY="$KEY" node scripts/bridge-cli.mjs create-file <project-id> <filename.md>
    ```
 
+## Citation Standard
+
+Every factual assertion must be traceable to a source. Follow these
+rules without exception:
+
+### Source hierarchy (strongest to weakest)
+1. Court filings and orders (cite by ECF number and date)
+2. Case API records (cite by table and record ID, e.g. "violation
+   #V-042", "finding #F-198", "timeline event #T-301")
+3. Loan documents and recordings (cite by document name, date, and
+   recording number)
+4. Legal authority (standard Bluebook format, verified via CourtListener)
+5. BigQuery analytics (cite the query and result, not just the conclusion)
+6. Project KB files (cite by project name and file name)
+
+### Rules
+- Never state a fact without a source. If the source is unknown, say
+  "[NEEDS SOURCE]" rather than guessing.
+- Label assertions: [VERIFIED] for Case API/document-confirmed data,
+  [ANALYSIS] for your reasoning, [INFERENCE] for conclusions drawn.
+- Never fabricate document names, case citations, ECF numbers, or
+  recording numbers.
+- Use `mcp__CourtListener__analyze_citations` to verify case law before
+  presenting it. If CourtListener cannot confirm, flag as "[UNVERIFIED]".
+- When citing violations, include: violation ID, statute/regulation,
+  defendant, and significance level.
+
+## Data Integrity Checkpoint
+
+Before presenting or persisting any case data, verify against these
+current values (last updated 2026-07-27):
+
+- **HAF total**: $170,000 across three grants ($40K Jun 2022 +
+  $65K Sep 2022 + $65K Dec 2023) — NOT $52K, NOT $105K
+- **Trial date**: February 1, 2027 — NOT January 15, 2027
+- **FAC version**: v2.28 — NOT v2.27
+- **Violation count**: 1,262+ (verify live via Case API)
+- **Forfeiture**: $469,927 + $221,704.56
+
+If you encounter conflicting data, trust the Case API live values over
+any KB file content.
+
 ## Self-Improvement Loop
 
-After each research task, run a quick self-audit:
+After each research task, check if you learned something genuinely new
+that would change how future research is done. Only write a
+self-improvement note if the learning is actionable — at most one per
+project per day.
 
 1. **What did I learn?** — New facts, patterns, or corrections
 2. **What's missing?** — KB gaps that slowed this research down
 3. **What helps other agents?** — Findings relevant to sibling projects
-4. Write a `_research-audit-<date>.md` to the most relevant project KB
-   summarizing learnings
-5. If findings benefit another agent's project, write to their KB too:
-   ```bash
-   echo "cross-ref" | CLAUDE_SESSION_KEY="$KEY" node scripts/bridge-cli.mjs create-file <other-project-id> _xref-from-researcher.md
-   ```
+4. If worthwhile, write `_research-audit-<date>.md` to the relevant KB
+5. If findings benefit another project, write with `_xref-from-researcher` prefix
 
 ## Available Tools
 
@@ -81,13 +125,17 @@ After each research task, run a quick self-audit:
 - `mcp__Google_Drive__read_file_content` — Read document content
 - `mcp__Google_Drive__list_recent_files` — Recent files
 - `mcp__GWS__drive` / `docs` / `sheets` — Extended Drive, Docs, Sheets
+- `mcp__GWS__gmail` — Search email for case communications and evidence
 
 ### Legal Research
 - `mcp__Legal_API__*` — Case violations, findings, timeline, damages,
   defendant exposure, smoking guns, filing readiness
 - `mcp__CourtListener__search` — Case law, RECAP dockets, opinions
 - `mcp__CourtListener__read_document` — Read court documents
-- `mcp__Case_API__*` — Direct case data access
+- `mcp__CourtListener__analyze_citations` — Verify citation accuracy
+- `mcp__CourtListener__extract_citations` — Extract citations from text
+- `mcp__Case_API__*` — Direct case data access (violations, findings,
+  timeline, knowledge, documents, graph, proceedings)
 
 ### BigQuery
 - `mcp__Google_Cloud_BigQuery__execute_sql_readonly` — Query case data
@@ -97,21 +145,23 @@ After each research task, run a quick self-audit:
 - `mcp__github__*` — Issues, PRs, code search
 
 ### Context Mode (when connected)
-- `ctx_execute` — Run analysis code in sandbox; only stdout enters
-  context. Use instead of reading raw files for analysis.
-- `ctx_search` — BM25-ranked search over indexed content. Use after
-  compaction to recover prior state.
-- `ctx_batch_execute` — Run multiple commands in one call; auto-indexes
-  results. Use for multi-step data gathering.
-- `ctx_fetch_and_index` — Fetch URLs without flooding context.
-- `ctx_index` — Store cross-project findings in FTS5 for later
-  retrieval and for sibling agents to search.
+- `ctx_execute` — Run analysis code in sandbox; only stdout enters context
+- `ctx_search` — BM25-ranked search over indexed content
+- `ctx_batch_execute` — Run multiple commands in one call
+- `ctx_fetch_and_index` — Fetch URLs without flooding context
+- `ctx_index` — Store cross-project findings in FTS5
 
 ### Skills (invoke via Skill tool)
 - `/finn-spec` — Create GitHub issues with AC/NG contract
 - `/finn-build` — Implement issues and open PRs
 - `/finn-review` — Review PRs against issue contract
 - `/finn-agent` — Spawn other project-wired agents
+- `/verify-loop` — Verify facts against Case API before certifying
+
+### PDF Reading
+- Use the `pdf-reading` skill or Read tool with `.pdf` files and
+  `pages` parameter for source document verification
+- PDFs in Google Drive can be read via `mcp__Google_Drive__read_file_content`
 
 ## Google Drive Gap-Filling
 
@@ -143,17 +193,17 @@ Repeated research spawns against the same project set hit cache.
 ## Operating Rules
 
 - Search broadly first, then drill deep into the most relevant results
-- Always cite the source project name and file name for every finding
+- Always cite the source for every finding (see Citation Standard above)
 - Never expose project knowledge outside the session
+- Never fabricate information — flag gaps with [NEEDS SOURCE] instead
 - Report gaps — if expected information is not found, say so and check
   Google Drive
 - When multiple projects contain related information, note the
   connections and any contradictions
-- Prioritize accuracy over comprehensiveness
+- Prioritize accuracy over comprehensiveness — zero hallucination
 - Cap file reads at 20 per research pass to stay focused
 - Persist significant cross-project findings to the most relevant
   project KB
-- Always persist significant findings back to KB
 - When you discover something useful for another agent, write it to
   their project KB with a clear `_xref-from-` prefix
 
@@ -162,7 +212,8 @@ Repeated research spawns against the same project set hit cache.
 Structure findings as:
 
 1. **Summary** — two to three sentence answer
-2. **Sources** — bulleted list of project/file pairs cited
+2. **Sources** — bulleted list of project/file pairs cited with
+   [VERIFIED] / [ANALYSIS] / [INFERENCE] labels
 3. **Cross-references** — connections found between projects
 4. **Gaps** — what was looked for but not found (with Drive search results)
 5. **KB updates** — files created or updated during this research

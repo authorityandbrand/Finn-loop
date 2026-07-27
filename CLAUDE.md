@@ -162,6 +162,55 @@ When context-mode is connected, agents should:
 - Use `ctx_search` after compaction to recover prior state
 - Use `ctx_index` to persist findings for later retrieval
 
+### Citation Architecture
+
+Every factual assertion about the case must be traceable to a source.
+All agents must follow these rules without exception:
+
+#### Source hierarchy (strongest to weakest)
+1. Court filings and orders (cite by ECF number and date)
+2. Case API records (cite by table and record ID: "violation #V-042",
+   "finding #F-198", "timeline event #T-301")
+3. Loan documents and recordings (cite by document name, date, and
+   recording number where applicable)
+4. Legal authority (standard Bluebook format, verified via CourtListener)
+5. BigQuery analytics (cite the query and result, not just the conclusion)
+6. Project KB files (cite by project name and file name)
+
+#### Rules
+- Never state a fact without a source. If the source is unknown, say
+  "[NEEDS SOURCE]" rather than guessing.
+- Distinguish VERIFIED FACTS (from Case API/documents) from ANALYSIS
+  (reasoning about those facts) from INFERENCE (conclusions drawn).
+- Never fabricate document names, case citations, ECF numbers, or
+  recording numbers. If the exact reference is not available, say
+  "[NEEDS SOURCE]" rather than guessing.
+- Use `mcp__CourtListener__analyze_citations` to verify any case law
+  citation before presenting it. If CourtListener cannot find it, flag
+  it as "[UNVERIFIED]".
+- When citing violations, always include: violation ID, statute/regulation
+  violated, defendant, and significance level.
+- When citing findings, always include: finding ID, category, and
+  source document.
+
+### Data Integrity Checkpoint
+
+Before presenting or persisting case data, verify against these current
+values (last updated 2026-07-27):
+
+| Data point | Current value | Common stale values |
+|------------|---------------|---------------------|
+| HAF total | $170,000 (3 grants: $40K Jun 2022 + $65K Sep 2022 + $65K Dec 2023) | $52K, $105K |
+| Trial date | February 1, 2027 | January 15, 2027 |
+| FAC version | v2.28 | v2.27 |
+| Violation count | 1,262+ (verify live) | 482, 771, 861 |
+| Forfeiture | $469,927 + $221,704.56 | — |
+| Defendants | 82 (verify live) | 184 |
+| Damages range | $89.4M–$349.8M | — |
+
+If you encounter conflicting data, trust Case API live values over any
+KB file content.
+
 ## Factory Skills
 
 | Skill | What it does |

@@ -1,7 +1,12 @@
 #!/usr/bin/env node
 
 const SESSION_KEY = process.env.CLAUDE_SESSION_KEY;
-const ORG_ID = process.env.CLAUDE_ORG_ID || "f1f8a19a-2cfe-46d4-90ac-7e923275f907";
+const ORG_ID = process.env.CLAUDE_ORG_ID;
+
+if (!ORG_ID) {
+  console.error("CLAUDE_ORG_ID env var required");
+  process.exit(1);
+}
 
 if (!SESSION_KEY) {
   console.error("CLAUDE_SESSION_KEY env var required");
@@ -180,9 +185,14 @@ switch (cmd) {
   case "get-conversation": {
     if (!args[0]) { console.error("Usage: bridge-cli.mjs get-conversation <conversation-id>"); process.exit(1); }
     const convo = await api(`/chat_conversations/${args[0]}`);
-    const msgs = (convo.chat_messages || []).map(m => ({
-      role: m.sender, text: (m.content || []).filter(c => c.type === "text").map(c => c.text).join("\n").slice(0, 500),
-    }));
+    const msgs = (convo.chat_messages || []).map(m => {
+      // Message text lives directly on m.text (a plain string), not nested in
+      // a content-blocks array. The old code looked for `m.content` (array of
+      // {type,text} blocks) which does not exist on this endpoint's response
+      // shape, so it silently produced an empty string for every message.
+      const text = typeof m.text === "string" ? m.text : (m.content || []).filter(c => c.type === "text").map(c => c.text).join("\n");
+      return { role: m.sender, text: text.slice(0, 500) };
+    });
     console.log(JSON.stringify({
       id: convo.uuid, name: convo.name || "(untitled)",
       project: convo.project_uuid, created: convo.created_at, updated: convo.updated_at,

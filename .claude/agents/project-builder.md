@@ -69,29 +69,47 @@ Layer these on top of the standard workflow:
 - If the project instructions conflict with the GitHub issue, follow the
   issue — it is the contract
 
+## Citation Standard
+
+When generating any content that references case data (legal documents,
+violation summaries, KB entries, filing drafts):
+
+- Cite Case API record IDs for all factual claims (e.g. "violation
+  #V-042", "finding #F-198")
+- Never fabricate document names, ECF numbers, or case citations
+- Use [VERIFIED] / [ANALYSIS] / [INFERENCE] labels when the output
+  includes legal assertions
+- Verify key facts against Case API live data, not just KB file content
+
+## Data Integrity Checkpoint
+
+Before generating any content with case data, verify against these
+current values (last updated 2026-07-27):
+
+- **HAF total**: $170,000 (three grants: $40K + $65K + $65K)
+- **Trial date**: February 1, 2027
+- **FAC version**: v2.28
+- **Violation count**: 1,262+
+- **Forfeiture**: $469,927 + $221,704.56
+
 ## Self-Improvement Loop
 
-After each build, run a quick self-audit:
+After each build, check if you learned something genuinely new that
+would change how future builds are done. Only write a self-improvement
+note if the learning is actionable — at most one per project per day.
 
 1. **What did I learn?** — New patterns, conventions, or corrections
 2. **What's missing?** — KB gaps that slowed this build down
 3. **What helps other agents?** — Findings relevant to sibling projects
-4. Write a `_self-improve-<date>.md` to your project KB summarizing
-   learnings
-5. If findings benefit another agent's project, write to their KB too:
-   ```bash
-   echo "cross-ref" | CLAUDE_SESSION_KEY="$KEY" node scripts/bridge-cli.mjs create-file <other-project-id> _xref-from-builder.md
-   ```
+4. If worthwhile, write `_impl-notes-<issue>.md` to the project KB
+5. If findings benefit another project, write with `_xref-from-builder` prefix
 
 ## Post-Build Persistence
 
 After completing the build:
 
 1. Write a brief implementation summary to the project KB documenting
-   what was built, patterns used, and decisions made:
-   ```bash
-   echo "summary" | CLAUDE_SESSION_KEY="$KEY" node scripts/bridge-cli.mjs create-file <project-id> _impl-notes-<issue>.md
-   ```
+   what was built, patterns used, and decisions made
 2. If you discovered gaps in project knowledge during the build, note
    them in the summary for future reference
 3. Check Google Drive for any reference material that would improve the
@@ -104,6 +122,7 @@ After completing the build:
 - `mcp__Google_Drive__read_file_content` — Read document content
 - `mcp__Google_Drive__list_recent_files` — Recent files
 - `mcp__GWS__drive` / `docs` / `sheets` — Extended Drive, Docs, Sheets
+- `mcp__GWS__gmail` — Search email for case communications
 
 ### Legal Research
 - `mcp__Legal_API__*` — Case violations, findings, timeline, damages,
@@ -116,26 +135,25 @@ After completing the build:
 - `mcp__Google_Cloud_BigQuery__execute_sql_readonly` — Query case data
 - `mcp__Legal_API__run_bigquery` — Legal-specific queries
 
+### Infrastructure
+- `mcp__Build__*` — Cloudflare Workers build management
+- `mcp__Cloudflare_mcp__*` — Cloudflare Worker deployment and config
+
 ### GitHub
 - `mcp__github__*` — Issues, PRs, code search
 
 ### Context Mode (when connected)
-- `ctx_execute` — Run analysis code in sandbox; only stdout enters
-  context. Use for code analysis, data processing, and test output
-  inspection instead of reading raw output into context.
-- `ctx_search` — BM25-ranked search over indexed content. Use after
-  compaction to recover build state and prior decisions.
-- `ctx_batch_execute` — Run multiple commands in one call; auto-indexes
-  results. Use for multi-step build verification (lint + typecheck +
-  test in one call).
-- `ctx_index` — Store implementation decisions and patterns in FTS5
-  for later retrieval by reviewers and future builds.
+- `ctx_execute` — Run analysis code in sandbox
+- `ctx_search` — BM25-ranked search over indexed content
+- `ctx_batch_execute` — Run multiple commands in one call
+- `ctx_index` — Store implementation decisions for reviewers
 
 ### Skills (invoke via Skill tool)
 - `/finn-spec` — Create GitHub issues with AC/NG contract
 - `/finn-build` — Implement issues and open PRs
 - `/finn-review` — Review PRs against issue contract
 - `/finn-agent` — Spawn other project-wired agents
+- `/verify-loop` — Verify facts against Case API before certifying
 
 ## Google Drive Gap-Filling
 
